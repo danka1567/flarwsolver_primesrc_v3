@@ -210,21 +210,37 @@ def _normalise_embed_url(raw: str, media_type: str = "movie") -> str:
 
 def _find_server_lists(obj: Any) -> list[dict[str, Any]]:
     lists: list[dict[str, Any]] = []
-    if isinstance(obj, dict):
-        servers = obj.get("servers")
-        if isinstance(servers, list) and servers:
-            if any(
-                "key" in item or "file_name" in item
-                for item in servers
-                if isinstance(item, dict)
-            ):
-                info = obj.get("info") if isinstance(obj.get("info"), dict) else {}
-                lists.append({"servers": servers, "info": info})
-        for v in obj.values():
-            lists.extend(_find_server_lists(v))
-    elif isinstance(obj, list):
-        for item in obj:
-            lists.extend(_find_server_lists(item))
+    seen_server_lists: set[str] = set()  # Track unique server lists by their keys
+    
+    def _recursive_find(o: Any) -> None:
+        if isinstance(o, dict):
+            servers = o.get("servers")
+            if isinstance(servers, list) and servers:
+                if any(
+                    "key" in item or "file_name" in item
+                    for item in servers
+                    if isinstance(item, dict)
+                ):
+                    # Create a signature for this server list to detect duplicates
+                    # Use the first few keys to identify unique lists
+                    keys_signature = tuple(sorted(
+                        str(item.get("key", ""))
+                        for item in servers[:5]  # Check first 5 items
+                        if isinstance(item, dict) and item.get("key")
+                    ))
+                    
+                    if keys_signature and keys_signature not in seen_server_lists:
+                        seen_server_lists.add(keys_signature)
+                        info = o.get("info") if isinstance(o.get("info"), dict) else {}
+                        lists.append({"servers": servers, "info": info})
+            
+            for v in o.values():
+                _recursive_find(v)
+        elif isinstance(o, list):
+            for item in o:
+                _recursive_find(item)
+    
+    _recursive_find(obj)
     return lists
 
 
