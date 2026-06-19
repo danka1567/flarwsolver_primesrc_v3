@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import functools
 import json
 import os
 import re
@@ -426,13 +427,15 @@ def _fs_post(base_url: str, payload: dict[str, Any], http_timeout: int = 120) ->
 
 async def _fs_create_session(base_url: str, session_id: str) -> None:
     loop = asyncio.get_running_loop()
-    resp = await loop.run_in_executor(
-        None,
-        lambda: _fs_post(base_url, {
+    fs_post_call = functools.partial(
+        _fs_post,
+        base_url,
+        {
             "cmd": "sessions.create",
             "session": session_id,
-        }),
+        }
     )
+    resp = await loop.run_in_executor(None, fs_post_call)
     if resp.get("status") not in ("ok", "warning"):
         log_warn(f"FlareSolverr session.create status: {resp.get('status')} — {resp.get('message')}")
     else:
@@ -442,13 +445,15 @@ async def _fs_create_session(base_url: str, session_id: str) -> None:
 async def _fs_destroy_session(base_url: str, session_id: str) -> None:
     loop = asyncio.get_running_loop()
     try:
-        await loop.run_in_executor(
-            None,
-            lambda: _fs_post(base_url, {
+        fs_post_call = functools.partial(
+            _fs_post,
+            base_url,
+            {
                 "cmd": "sessions.destroy",
                 "session": session_id,
-            }),
+            }
         )
+        await loop.run_in_executor(None, fs_post_call)
         log_info(f"FlareSolverr session destroyed: {session_id}")
     except Exception:
         pass
@@ -504,15 +509,18 @@ async def _resolve_one_flaresolverr(
 
             # ── Route Everything Directly Through FlareSolverr ──────────────────────
             try:
-                fs_resp = await loop.run_in_executor(
-                    None,
-                    lambda: _fs_post(base_url, {
+                # Create a proper partial function to avoid closure issues with concurrent execution
+                fs_post_call = functools.partial(
+                    _fs_post,
+                    base_url,
+                    {
                         "cmd":        "request.get",
                         "url":        api_url,
                         "maxTimeout": timeout_ms,
                         "session":    session_id,
-                    }),
+                    }
                 )
+                fs_resp = await loop.run_in_executor(None, fs_post_call)
 
                 if fs_resp.get("status") != "ok":
                     last_error = (
